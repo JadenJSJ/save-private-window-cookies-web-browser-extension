@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=400">
+    <title>Save Private Window Data</title>
+    <style>
+        :root {
+            --bg-primary: #1a1a2e;
+            --bg-secondary: #16213e;
+            --bg-card: #0f3460;
+            --accent: #e94560;
+            --accent-hover: #ff6b6b;
+            --text-primary: #eaeaea;
+            --text-secondary: #a0a0a0;
+            --success: #4ecca3;
+            --warning: #ffc107;
+            --border-radius: 12px;
+            --transition: all 0.3s ease;
+        }
+
+        @media (prefers-color-scheme: light) {
+            :root {
+                --bg-primary: #f5f5f5;
+                --bg-secondary: #ffffff;
+                --bg-card: #e8e8e8;
+                --accent: #e94560;
+                --accent-hover: #d63850;
+                --text-primary: #1a1a2e;
+                --text-secondary: #666666;
+            }
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            width: 380px;
+            min-height: 200px;
+            padding: 20px;
+        }
+
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid var(--bg-card);
+        }
+
+        .header h1 {
+            font-size: 16px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .header h1::before {
+            content: '🔐';
+            font-size: 20px;
+        }
+
+        /* Toggle Switch */
+        .toggle-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .toggle-label {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .toggle {
+            position: relative;
+            width: 44px;
+            height: 24px;
+        }
+
+        .toggle input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: var(--bg-card);
+            transition: var(--transition);
+            border-radius: 24px;
+        }
+
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: var(--text-secondary);
+            transition: var(--transition);
+            border-radius: 50%;
+        }
+
+        .toggle input:checked+.toggle-slider {
+            background-color: var(--accent);
+        }
+
+        .toggle input:checked+.toggle-slider:before {
+            transform: translateX(20px);
+            background-color: white;
+        }
+
+        /* Warning Banner */
+        .warning {
+            background: linear-gradient(135deg, var(--accent) 0%, #ff6b6b 100%);
+            color: white;
+            padding: 12px 15px;
+            border-radius: var(--border-radius);
+            margin-bottom: 15px;
+            font-size: 13px;
+            line-height: 1.4;
+        }
+
+        .warning strong {
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        /* Status Indicator */
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 15px;
+            background: var(--bg-secondary);
+            border-radius: var(--border-radius);
+            margin-bottom: 15px;
+            font-size: 13px;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--text-secondary);
+        }
+
+        .status-dot.active {
+            background: var(--success);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        /* Sections */
+        .section {
+            background: var(--bg-secondary);
+            border-radius: var(--border-radius);
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .section-title {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+        }
+
+        /* Buttons */
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            flex: 1;
+            min-width: 100px;
+            padding: 12px 16px;
+            border: none;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: var(--transition);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent) 0%, #ff6b6b 100%);
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(233, 69, 96, 0.4);
+        }
+
+        .btn-secondary {
+            background: var(--bg-card);
+            color: var(--text-primary);
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            background: var(--bg-primary);
+        }
+
+        .btn-danger {
+            background: transparent;
+            border: 1px solid var(--accent);
+            color: var(--accent);
+        }
+
+        .btn-danger:hover:not(:disabled) {
+            background: var(--accent);
+            color: white;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Checkbox Options */
+        .options-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .option {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 12px;
+            background: var(--bg-primary);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .option:hover {
+            background: var(--bg-card);
+        }
+
+        .option input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            accent-color: var(--accent);
+        }
+
+        .option-label {
+            font-size: 13px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .option-label small {
+            font-size: 10px;
+            color: var(--text-secondary);
+        }
+
+        /* Storage Stats */
+        .storage-stats {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+
+        .stat {
+            background: var(--bg-primary);
+            padding: 12px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--accent);
+        }
+
+        .stat-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+
+        .last-saved {
+            text-align: center;
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-bottom: 15px;
+        }
+
+        .last-saved.recent {
+            color: var(--success);
+        }
+
+        /* Modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 100;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        .modal {
+            background: var(--bg-secondary);
+            border-radius: var(--border-radius);
+            padding: 20px;
+            max-width: 340px;
+            width: 90%;
+        }
+
+        .modal h3 {
+            margin-bottom: 15px;
+            font-size: 16px;
+        }
+
+        .modal p {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 20px;
+            line-height: 1.5;
+        }
+
+        .modal-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .modal-buttons .btn {
+            width: 100%;
+        }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-top: 10px;
+        }
+
+        .footer a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header">
+        <h1>Private Window Data</h1>
+        <div class="toggle-container">
+            <span class="toggle-label">Enabled</span>
+            <label class="toggle">
+                <input type="checkbox" id="extension_enabled">
+                <span class="toggle-slider"></span>
+            </label>
+        </div>
+    </div>
+
+    <div id="warning" class="warning" style="display: none;"></div>
+
+    <div class="status">
+        <span class="status-dot" id="status_dot"></span>
+        <span id="status_text">No private window open</span>
+    </div>
+
+    <div class="last-saved" id="last_saved">Never saved in current session</div>
+
+    <div class="section">
+        <div class="section-title">Quick Actions</div>
+        <div class="btn-group">
+            <button class="btn btn-primary" id="save">
+                <span>💾</span> Save Now
+            </button>
+            <button class="btn btn-secondary" id="restore_now">
+                <span>🔄</span> Restore
+            </button>
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="section-title">Storage Types</div>
+        <div class="options-grid">
+            <label class="option">
+                <input type="checkbox" id="save_cookies" checked disabled>
+                <span class="option-label">
+                    Cookies
+                    <small>Always saved</small>
+                </span>
+            </label>
+            <label class="option">
+                <input type="checkbox" id="save_localStorage" checked>
+                <span class="option-label">
+                    localStorage
+                    <small>Website data</small>
+                </span>
+            </label>
+            <label class="option">
+                <input type="checkbox" id="save_indexedDB" checked>
+                <span class="option-label">
+                    IndexedDB
+                    <small>App databases</small>
+                </span>
+            </label>
+            <label class="option">
+                <input type="checkbox" id="save_cacheAPI">
+                <span class="option-label">
+                    Cache API
+                    <small>Offline assets</small>
+                </span>
+            </label>
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="section-title">Settings</div>
+        <label class="option" style="margin-bottom: 10px;">
+            <input type="checkbox" id="auto_save">
+            <span class="option-label">
+                Auto-save on changes
+                <small>Automatically save when data changes</small>
+            </span>
+        </label>
+    </div>
+
+    <div class="section">
+        <div class="section-title">Stored Data</div>
+        <div class="storage-stats">
+            <div class="stat">
+                <div class="stat-value" id="total_size">0</div>
+                <div class="stat-label">KB Total</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value" id="origin_count">0</div>
+                <div class="stat-label">Origins</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="section-title">Data Management</div>
+        <div class="btn-group">
+            <button class="btn btn-secondary" id="backup">
+                <span>📥</span> Backup
+            </button>
+            <button class="btn btn-secondary" id="restore">
+                <span>📤</span> Restore
+            </button>
+            <button class="btn btn-danger" id="delete">
+                <span>🗑️</span> Delete
+            </button>
+        </div>
+        <input type="file" accept=".json" id="file_input" style="display: none;">
+    </div>
+
+    <div class="footer">
+        <a href="https://github.com/JadenJSJ/save-private-window-cookies-web-browser-extension"
+            target="_blank">GitHub</a>
+    </div>
+
+    <!-- Reconciliation Modal -->
+    <div class="modal-overlay" id="reconcile_modal">
+        <div class="modal">
+            <h3>🔄 Data Reconciliation</h3>
+            <p>A private window is currently open. How would you like to handle the existing data?</p>
+            <div class="modal-buttons">
+                <button class="btn btn-primary" id="reconcile_save">
+                    <span>💾</span> Save current data first
+                </button>
+                <button class="btn btn-secondary" id="reconcile_restore">
+                    <span>🔄</span> Restore saved data (overwrite current)
+                </button>
+                <button class="btn btn-secondary" id="reconcile_skip">
+                    <span>⏭️</span> Skip (keep both as-is)
+                </button>
+                <button class="btn btn-danger" id="reconcile_cancel">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+
+</html>
