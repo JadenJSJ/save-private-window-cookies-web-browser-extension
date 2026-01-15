@@ -1,118 +1,21 @@
-var isFirefox = navigator.userAgent.indexOf('Firefox') !== -1;
-var cookie_store = isFirefox ? 'firefox-private' : '1';
+// Popup script for the browser extension
+// Uses shared utilities from utils.js (loaded before this script)
+
 var objectURL, downloadID;
-
-// Default settings
-const defaultSettings = {
-    extension_enabled: true,
-    auto_save: false,
-    save_localStorage: true,
-    save_indexedDB: true,
-    save_cacheAPI: false,
-    cache_size_limit_mb: 50  // User-configurable Cache API size limit
-};
-
-// ============ Utility Functions ============
-
-async function is_private_window_open() {
-    let private_window_open = false;
-
-    await chrome.windows.getAll().then((windowInfoArray) => {
-        for (let windowInfo of windowInfoArray) {
-            if (windowInfo['incognito']) {
-                private_window_open = true;
-                break;
-            }
-        }
-    });
-
-    return private_window_open;
-}
-
-async function getPrivateTabs() {
-    const tabs = [];
-    const windows = await chrome.windows.getAll({ populate: true });
-
-    for (const window of windows) {
-        if (window.incognito) {
-            for (const tab of window.tabs) {
-                if (tab.url && (tab.url.startsWith('http://') || tab.url.startsWith('https://'))) {
-                    tabs.push(tab);
-                }
-            }
-        }
-    }
-
-    return tabs;
-}
-
-function getOriginFromUrl(url) {
-    try {
-        return new URL(url).origin;
-    } catch {
-        return null;
-    }
-}
 
 // ============ Cookie Functions ============
 
 async function save_cookies_only() {
-    let details = { 'storeId': cookie_store };
+    let details = { storeId: cookie_store };
 
     if (isFirefox) {
-        details['firstPartyDomain'] = null;
-        details['partitionKey'] = {};
+        details.firstPartyDomain = null;
+        details.partitionKey = {};
     }
 
     const cookies = await chrome.cookies.getAll(details);
-    await chrome.storage.local.set({ 'cookies': cookies });
+    await chrome.storage.local.set({ cookies: cookies });
     return cookies;
-}
-
-function restore_cookies() {
-    chrome.storage.local.get('cookies').then((res) => {
-        if (res['cookies']) {
-            for (let cookie of res['cookies']) {
-                try {
-                    const domain = cookie['domain'].charAt(0) == '.' ? cookie['domain'].substr(1) : cookie['domain'];
-                    cookie['url'] = (cookie['secure'] ? 'https://' : 'http://') + domain + cookie['path'];
-                    delete cookie['hostOnly'];
-                    delete cookie['session'];
-
-                    // Handle __Host- prefixed cookies
-                    if (cookie['name'].startsWith('__Host-')) {
-                        delete cookie['domain'];
-                        cookie['secure'] = true;
-                        cookie['path'] = '/';
-                    }
-
-                    // Handle __Secure- prefixed cookies
-                    if (cookie['name'].startsWith('__Secure-')) {
-                        cookie['secure'] = true;
-                    }
-
-                    chrome.cookies.set(cookie).catch(() => { });
-                } catch (e) {
-                    // Skip problematic cookies
-                }
-            }
-        }
-    });
-}
-
-async function clear_private_cookies() {
-    if (isFirefox) {
-        await chrome.browsingData.removeCookies({ 'cookieStoreId': cookie_store });
-    } else {
-        const cookies = await chrome.cookies.getAll({ 'storeId': cookie_store });
-        for (let cookie of cookies) {
-            await chrome.cookies.remove({
-                'storeId': cookie_store,
-                'url': (cookie['secure'] ? 'https://' : 'http://') + (cookie['domain'].charAt(0) == '.' ? cookie['domain'].substr(1) : cookie['domain']) + cookie['path'],
-                'name': cookie['name']
-            });
-        }
-    }
 }
 
 // ============ Web Storage Functions ============
@@ -132,36 +35,47 @@ async function collectWebStorageFromTabs(settings) {
         }
     }
 
-    for (const [origin, tab] of Object.entries(originTabs)) {
-        try {
-            const response = await chrome.tabs.sendMessage(tab.id, {
-                action: 'getStorageData',
-                includeCache: includeCache,
-                cacheSizeLimit: cacheSizeLimit
-            });
+    // Parallel collection from all origins
+    const originEntries = Object.entries(originTabs);
+    const results = await Promise.allSettled(
+        originEntries.map(async ([origin, tab]) => {
+            try {
+                const response = await chrome.tabs.sendMessage(tab.id, {
+                    action: 'getStorageData',
+                    includeCache: includeCache,
+                    cacheSizeLimit: cacheSizeLimit
+                });
 
-            if (response && response.origin) {
-                const storageData = {};
+                if (response && response.origin) {
+                    const storageData = {};
 
-                if (settings.save_localStorage && response.localStorage && Object.keys(response.localStorage).length > 0) {
-                    storageData.localStorage = response.localStorage;
+                    if (settings.save_localStorage && response.localStorage && Object.keys(response.localStorage).length > 0) {
+                        storageData.localStorage = response.localStorage;
+                    }
+
+                    if (settings.save_indexedDB && response.indexedDB && response.indexedDB.length > 0) {
+                        storageData.indexedDB = response.indexedDB;
+                    }
+
+                    if (settings.save_cacheAPI && response.cacheStorage && response.cacheStorage.length > 0) {
+                        storageData.cacheStorage = response.cacheStorage;
+                    }
+
+                    if (Object.keys(storageData).length > 0) {
+                        return { origin, data: storageData };
+                    }
                 }
-
-                if (settings.save_indexedDB && response.indexedDB && response.indexedDB.length > 0) {
-                    storageData.indexedDB = response.indexedDB;
-                }
-
-                if (settings.save_cacheAPI && response.cacheStorage && response.cacheStorage.length > 0) {
-                    storageData.cacheStorage = response.cacheStorage;
-                }
-
-                if (Object.keys(storageData).length > 0) {
-                    webStorage[origin] = storageData;
-                }
+            } catch (e) {
+                console.log('Could not collect from tab:', tab.url, e);
             }
-        } catch (e) {
-            // Tab might not have content script loaded yet
-            console.log('Could not collect from tab:', tab.url, e);
+            return null;
+        })
+    );
+
+    // Build webStorage from results
+    for (const result of results) {
+        if (result.status === 'fulfilled' && result.value) {
+            webStorage[result.value.origin] = result.value.data;
         }
     }
 
@@ -175,21 +89,24 @@ async function restoreWebStorageToTabs(clearFirst = true) {
 
     const tabs = await getPrivateTabs();
 
-    for (const tab of tabs) {
-        const origin = getOriginFromUrl(tab.url);
-        if (origin && webStorage[origin]) {
-            try {
-                await chrome.tabs.sendMessage(tab.id, {
-                    action: 'setStorageData',
-                    data: webStorage[origin],
-                    clearFirst: clearFirst,
-                    includeCache: includeCache
-                });
-            } catch (e) {
-                console.log('Could not restore to tab:', tab.url, e);
+    // Parallel restoration
+    await Promise.allSettled(
+        tabs.map(async (tab) => {
+            const origin = getOriginFromUrl(tab.url);
+            if (origin && webStorage[origin]) {
+                try {
+                    await chrome.tabs.sendMessage(tab.id, {
+                        action: 'setStorageData',
+                        data: webStorage[origin],
+                        clearFirst: clearFirst,
+                        includeCache: includeCache
+                    });
+                } catch (e) {
+                    console.log('Could not restore to tab:', tab.url, e);
+                }
             }
-        }
-    }
+        })
+    );
 }
 
 async function clearWebStorageFromTabs() {
@@ -198,16 +115,19 @@ async function clearWebStorageFromTabs() {
 
     const tabs = await getPrivateTabs();
 
-    for (const tab of tabs) {
-        try {
-            await chrome.tabs.sendMessage(tab.id, {
-                action: 'clearStorageData',
-                includeCache: includeCache
-            });
-        } catch (e) {
-            console.log('Could not clear tab:', tab.url, e);
-        }
-    }
+    // Parallel clearing
+    await Promise.allSettled(
+        tabs.map(async (tab) => {
+            try {
+                await chrome.tabs.sendMessage(tab.id, {
+                    action: 'clearStorageData',
+                    includeCache: includeCache
+                });
+            } catch (e) {
+                console.log('Could not clear tab:', tab.url, e);
+            }
+        })
+    );
 }
 
 // ============ Save All Data ============
@@ -225,8 +145,8 @@ async function saveAllData() {
     // Save web storage from all private tabs
     const webStorage = await collectWebStorageFromTabs(settings);
     await chrome.storage.local.set({
-        'webStorage': webStorage,
-        'last_saved': Date.now()
+        webStorage: webStorage,
+        last_saved: Date.now()
     });
 
     update_storage_stats();
@@ -240,7 +160,7 @@ async function restoreAllData() {
         return;
     }
 
-    // Restore cookies
+    // Restore cookies (uses parallel ops from utils.js)
     restore_cookies();
 
     // Restore web storage to tabs
@@ -250,8 +170,8 @@ async function restoreAllData() {
 // ============ UI Updates ============
 
 async function update_warning() {
-    let private_enabled = await chrome.extension.isAllowedIncognitoAccess();
-    let access_enabled = await chrome.permissions.contains({ 'origins': ['<all_urls>'] });
+    const private_enabled = await chrome.extension.isAllowedIncognitoAccess();
+    const access_enabled = await chrome.permissions.contains({ origins: ['<all_urls>'] });
     let warning_html = '';
 
     if (!private_enabled && !access_enabled) {
@@ -275,7 +195,7 @@ async function update_warning() {
 
 async function update_button_states() {
     const private_enabled = await chrome.extension.isAllowedIncognitoAccess();
-    const access_enabled = await chrome.permissions.contains({ 'origins': ['<all_urls>'] });
+    const access_enabled = await chrome.permissions.contains({ origins: ['<all_urls>'] });
     const settings = await chrome.storage.local.get(defaultSettings);
     const private_window_open = await is_private_window_open();
 
@@ -310,12 +230,11 @@ async function update_storage_stats() {
     let totalBytes = 0;
     let originCount = 0;
 
-    // Calculate cookies size
+    // Calculate sizes (this is lightweight since we're just measuring what's already in memory)
     if (stored.cookies) {
         totalBytes += new TextEncoder().encode(JSON.stringify(stored.cookies)).length;
     }
 
-    // Calculate web storage size
     if (stored.webStorage) {
         totalBytes += new TextEncoder().encode(JSON.stringify(stored.webStorage)).length;
         originCount = Object.keys(stored.webStorage).length;
@@ -328,6 +247,9 @@ async function update_storage_stats() {
     document.querySelector('#delete').disabled = !hasData;
     document.querySelector('#backup').disabled = !hasData;
 }
+
+// Debounced version of update_storage_stats for rapid changes
+const debouncedUpdateStorageStats = debounce(update_storage_stats, 500);
 
 function update_last_saved() {
     chrome.storage.local.get('last_saved').then((res) => {
@@ -413,7 +335,7 @@ document.querySelector('#extension_enabled').addEventListener('change', async (e
         // Show reconciliation modal
         showReconcileModal();
     } else {
-        await chrome.storage.local.set({ 'extension_enabled': enabled });
+        await chrome.storage.local.set({ extension_enabled: enabled });
         update_button_states();
 
         // Notify background script
@@ -424,7 +346,7 @@ document.querySelector('#extension_enabled').addEventListener('change', async (e
 // Reconciliation handlers
 document.querySelector('#reconcile_save').addEventListener('click', async () => {
     hideReconcileModal();
-    await chrome.storage.local.set({ 'extension_enabled': true });
+    await chrome.storage.local.set({ extension_enabled: true });
     await saveAllData();
     update_button_states();
     chrome.runtime.sendMessage({ action: 'extensionToggled', enabled: true });
@@ -432,7 +354,7 @@ document.querySelector('#reconcile_save').addEventListener('click', async () => 
 
 document.querySelector('#reconcile_restore').addEventListener('click', async () => {
     hideReconcileModal();
-    await chrome.storage.local.set({ 'extension_enabled': true });
+    await chrome.storage.local.set({ extension_enabled: true });
     await clear_private_cookies();
     await clearWebStorageFromTabs();
     await restoreAllData();
@@ -442,7 +364,7 @@ document.querySelector('#reconcile_restore').addEventListener('click', async () 
 
 document.querySelector('#reconcile_skip').addEventListener('click', async () => {
     hideReconcileModal();
-    await chrome.storage.local.set({ 'extension_enabled': true });
+    await chrome.storage.local.set({ extension_enabled: true });
     update_button_states();
     chrome.runtime.sendMessage({ action: 'extensionToggled', enabled: true });
 });
@@ -454,7 +376,7 @@ document.querySelector('#reconcile_cancel').addEventListener('click', () => {
 
 // Auto-save toggle
 document.querySelector('#auto_save').addEventListener('change', async (event) => {
-    await chrome.storage.local.set({ 'auto_save': event.target.checked });
+    await chrome.storage.local.set({ auto_save: event.target.checked });
 
     if (event.target.checked) {
         await saveAllData();
@@ -481,7 +403,7 @@ document.querySelector('#save_cacheAPI').addEventListener('change', async (event
         // Don't enable yet - wait for modal confirmation
         event.target.checked = false;
     } else {
-        await chrome.storage.local.set({ 'save_cacheAPI': false });
+        await chrome.storage.local.set({ save_cacheAPI: false });
         document.querySelector('#cache_warning').style.display = 'none';
         document.querySelector('#cache_limit_section').style.display = 'none';
     }
@@ -491,7 +413,7 @@ document.querySelector('#save_cacheAPI').addEventListener('change', async (event
 document.querySelector('#cache_warning_confirm').addEventListener('click', async () => {
     document.querySelector('#cache_warning_modal').classList.remove('active');
     document.querySelector('#save_cacheAPI').checked = true;
-    await chrome.storage.local.set({ 'save_cacheAPI': true });
+    await chrome.storage.local.set({ save_cacheAPI: true });
     document.querySelector('#cache_warning').style.display = 'block';
     document.querySelector('#cache_limit_section').style.display = 'block';
 });
@@ -505,7 +427,7 @@ document.querySelector('#cache_warning_cancel').addEventListener('click', () => 
 document.querySelector('#cache_size_limit').addEventListener('change', async (event) => {
     const limit = Math.max(1, Math.min(500, parseInt(event.target.value) || 50));
     event.target.value = limit;
-    await chrome.storage.local.set({ 'cache_size_limit_mb': limit });
+    await chrome.storage.local.set({ cache_size_limit_mb: limit });
 });
 
 // Save button
@@ -540,19 +462,19 @@ document.querySelector('#backup').addEventListener('click', async () => {
         webStorage: stored.webStorage || {}
     };
 
-    objectURL = URL.createObjectURL(new Blob([JSON.stringify(backupData, null, 2)], { 'type': 'application/json' }));
+    objectURL = URL.createObjectURL(new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' }));
 
     chrome.downloads.download({
-        'url': objectURL,
-        'filename': 'private-window-data.json',
-        'saveAs': true
+        url: objectURL,
+        filename: 'private-window-data.json',
+        saveAs: true
     }).then((id) => {
         downloadID = id;
     });
 });
 
 chrome.downloads.onChanged.addListener((download) => {
-    if (download['id'] == downloadID && download['state'] && download['state']['current'] != 'in_progress') {
+    if (download.id === downloadID && download.state && download.state.current !== 'in_progress') {
         downloadID = undefined;
         URL.revokeObjectURL(objectURL);
         objectURL = undefined;
@@ -568,11 +490,13 @@ document.querySelector('#restore').addEventListener('click', () => {
 // Listen for window changes
 chrome.windows.onCreated.addListener((window) => {
     if (window.incognito) {
+        invalidatePrivateWindowCache(); // Invalidate cache
         update_button_states();
     }
 });
 
 chrome.windows.onRemoved.addListener(() => {
+    invalidatePrivateWindowCache(); // Invalidate cache
     update_button_states();
 });
 
@@ -584,11 +508,12 @@ chrome.permissions.onRemoved.addListener(() => {
     update_warning();
 });
 
+// Debounced storage change listener for better performance
 chrome.storage.onChanged.addListener((changes) => {
-    if (changes['cookies'] || changes['webStorage']) {
-        update_storage_stats();
+    if (changes.cookies || changes.webStorage) {
+        debouncedUpdateStorageStats(); // Debounced to prevent rapid-fire updates
     }
-    if (changes['last_saved']) {
+    if (changes.last_saved) {
         update_last_saved();
     }
 });

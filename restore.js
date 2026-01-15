@@ -1,8 +1,5 @@
 // Restore page script - handles file import in a dedicated tab
-// This avoids the popup auto-close issue when file picker opens
-
-var isFirefox = navigator.userAgent.indexOf('Firefox') !== -1;
-var cookie_store = isFirefox ? 'firefox-private' : '1';
+// Uses shared utilities from utils.js (loaded before this script)
 
 const dropZone = document.getElementById('drop_zone');
 const fileInput = document.getElementById('file_input');
@@ -88,40 +85,40 @@ async function processFile(file) {
 
         console.log(`Restoring: ${cookies.length} cookies, ${Object.keys(webStorage).length} origins`);
 
-        // Convert cookies if needed
-        for (let cookie of cookies) {
-            if (cookie['storeId'] == (isFirefox ? '1' : 'firefox-private')) {
-                cookie['storeId'] = cookie_store;
+        // Convert cookies if needed (use isFirefox and cookie_store from utils.js)
+        for (const cookie of cookies) {
+            if (cookie.storeId === (isFirefox ? '1' : 'firefox-private')) {
+                cookie.storeId = cookie_store;
             }
 
             if (isFirefox) {
-                if (cookie['sameSite'] == 'unspecified') {
-                    cookie['sameSite'] = 'no_restriction';
+                if (cookie.sameSite === 'unspecified') {
+                    cookie.sameSite = 'no_restriction';
                 }
-                if (cookie['firstPartyDomain'] === undefined) {
-                    cookie['firstPartyDomain'] = '';
+                if (cookie.firstPartyDomain === undefined) {
+                    cookie.firstPartyDomain = '';
                 }
-                if (cookie['partitionKey'] === undefined) {
-                    cookie['partitionKey'] = null;
+                if (cookie.partitionKey === undefined) {
+                    cookie.partitionKey = null;
                 }
             } else {
-                if (!cookie['secure'] && cookie['sameSite'] == 'no_restriction') {
-                    cookie['sameSite'] = 'unspecified';
+                if (!cookie.secure && cookie.sameSite === 'no_restriction') {
+                    cookie.sameSite = 'unspecified';
                 }
-                if (cookie['firstPartyDomain'] !== undefined) {
-                    delete cookie['firstPartyDomain'];
+                if (cookie.firstPartyDomain !== undefined) {
+                    delete cookie.firstPartyDomain;
                 }
-                if (cookie['partitionKey'] !== undefined) {
-                    delete cookie['partitionKey'];
+                if (cookie.partitionKey !== undefined) {
+                    delete cookie.partitionKey;
                 }
             }
         }
 
         // Save to storage
         await chrome.storage.local.set({
-            'cookies': cookies,
-            'webStorage': webStorage,
-            'last_saved': Date.now()
+            cookies: cookies,
+            webStorage: webStorage,
+            last_saved: Date.now()
         });
 
         // Notify background to restore to any open private windows

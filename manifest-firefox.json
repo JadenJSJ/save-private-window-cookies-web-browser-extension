@@ -30,6 +30,7 @@
 	},
 	"background": {
 		"scripts": [
+			"utils.js",
 			"background.js"
 		]
 	},
@@ -53,7 +54,8 @@
 		"cookies",
 		"downloads",
 		"browsingData",
-		"tabs"
+		"tabs",
+		"scripting"
 	],
 	"host_permissions": [
 		"<all_urls>"
