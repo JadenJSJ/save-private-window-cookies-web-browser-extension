@@ -8,7 +8,8 @@ const defaultSettings = {
 	auto_save: false,
 	save_localStorage: true,
 	save_indexedDB: true,
-	save_cacheAPI: false
+	save_cacheAPI: false,
+	cache_size_limit_mb: 50  // User-configurable Cache API size limit
 };
 
 // ============ Utility Functions ============
@@ -85,6 +86,7 @@ async function saveWebStorage(settings) {
 	const tabs = await getPrivateTabs();
 	const webStorage = {};
 	const includeCache = settings.save_cacheAPI;
+	const cacheSizeLimit = settings.cache_size_limit_mb || 50;
 
 	// Group tabs by origin
 	const originTabs = {};
@@ -99,7 +101,8 @@ async function saveWebStorage(settings) {
 		try {
 			const response = await chrome.tabs.sendMessage(tab.id, {
 				action: 'getStorageData',
-				includeCache: includeCache
+				includeCache: includeCache,
+				cacheSizeLimit: cacheSizeLimit
 			});
 
 			if (response && response.origin) {
@@ -221,6 +224,9 @@ async function save_cookies_listener() {
 
 // ============ Tab Navigation Listener for Web Storage ============
 
+// Track pending restores to prevent duplicates
+const pendingRestores = new Map();
+
 async function onTabUpdated(tabId, changeInfo, tab) {
 	if (!tab.incognito || changeInfo.status !== 'complete') {
 		return;
@@ -236,33 +242,45 @@ async function onTabUpdated(tabId, changeInfo, tab) {
 	const origin = getOriginFromUrl(tab.url);
 	if (!origin) return;
 
+	// Prevent duplicate restores for same tab/origin
+	const restoreKey = `${tabId}-${origin}`;
+	if (pendingRestores.has(restoreKey)) return;
+	pendingRestores.set(restoreKey, true);
+
 	const stored = await chrome.storage.local.get(['webStorage', 'save_cacheAPI']);
 	const webStorage = stored.webStorage || {};
 
-	if (webStorage[origin]) {
+	if (!webStorage[origin]) {
+		pendingRestores.delete(restoreKey);
+		return;
+	}
+
+	const maxRetries = 3;
+	const retryDelay = 500;
+
+	for (let attempt = 0; attempt < maxRetries; attempt++) {
 		try {
+			// Check if tab still exists and has same URL
+			const currentTab = await chrome.tabs.get(tabId).catch(() => null);
+			if (!currentTab || getOriginFromUrl(currentTab.url) !== origin) {
+				break; // Tab navigated away, abort
+			}
+
 			await chrome.tabs.sendMessage(tabId, {
 				action: 'setStorageData',
 				data: webStorage[origin],
 				clearFirst: false,
 				includeCache: stored.save_cacheAPI || false
 			});
+			break; // Success
 		} catch (e) {
-			// Content script not ready yet, retry after a delay
-			setTimeout(async () => {
-				try {
-					await chrome.tabs.sendMessage(tabId, {
-						action: 'setStorageData',
-						data: webStorage[origin],
-						clearFirst: false,
-						includeCache: stored.save_cacheAPI || false
-					});
-				} catch (e2) {
-					// Still failed, give up
-				}
-			}, 500);
+			if (attempt < maxRetries - 1) {
+				await new Promise(r => setTimeout(r, retryDelay));
+			}
 		}
 	}
+
+	pendingRestores.delete(restoreKey);
 }
 
 // ============ Event Listeners ============
@@ -380,6 +398,46 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 			}
 
 			sendResponse({ success: true });
+		})();
+
+		return true; // Keep channel open for async response
+	}
+
+	// Handle restore after import from restore.html page
+	if (message.action === 'restoreAfterImport') {
+		(async () => {
+			try {
+				// Check if private window is open
+				if (await is_private_window_open()) {
+					// Restore cookies
+					restore_cookies();
+
+					// Restore web storage to all private tabs
+					const tabs = await getPrivateTabs();
+					const stored = await chrome.storage.local.get(['webStorage', 'save_cacheAPI']);
+					const webStorage = stored.webStorage || {};
+
+					for (const tab of tabs) {
+						const origin = getOriginFromUrl(tab.url);
+						if (origin && webStorage[origin]) {
+							try {
+								await chrome.tabs.sendMessage(tab.id, {
+									action: 'setStorageData',
+									data: webStorage[origin],
+									clearFirst: true,
+									includeCache: stored.save_cacheAPI || false
+								});
+							} catch (e) {
+								// Tab might not have content script
+							}
+						}
+					}
+				}
+				sendResponse({ success: true });
+			} catch (e) {
+				console.error('Failed to restore after import:', e);
+				sendResponse({ success: false, error: e.message });
+			}
 		})();
 
 		return true; // Keep channel open for async response

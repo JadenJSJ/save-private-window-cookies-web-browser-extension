@@ -1,6 +1,5 @@
 var isFirefox = navigator.userAgent.indexOf('Firefox') !== -1;
 var cookie_store = isFirefox ? 'firefox-private' : '1';
-var file_input = document.querySelector('#file_input');
 var objectURL, downloadID;
 
 // Default settings
@@ -9,7 +8,8 @@ const defaultSettings = {
     auto_save: false,
     save_localStorage: true,
     save_indexedDB: true,
-    save_cacheAPI: false
+    save_cacheAPI: false,
+    cache_size_limit_mb: 50  // User-configurable Cache API size limit
 };
 
 // ============ Utility Functions ============
@@ -121,6 +121,7 @@ async function collectWebStorageFromTabs(settings) {
     const tabs = await getPrivateTabs();
     const webStorage = {};
     const includeCache = settings.save_cacheAPI;
+    const cacheSizeLimit = settings.cache_size_limit_mb || 50;
 
     // Group tabs by origin to avoid duplicate collection
     const originTabs = {};
@@ -135,7 +136,8 @@ async function collectWebStorageFromTabs(settings) {
         try {
             const response = await chrome.tabs.sendMessage(tab.id, {
                 action: 'getStorageData',
-                includeCache: includeCache
+                includeCache: includeCache,
+                cacheSizeLimit: cacheSizeLimit
             });
 
             if (response && response.origin) {
@@ -390,6 +392,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.querySelector('#save_localStorage').checked = settings.save_localStorage;
     document.querySelector('#save_indexedDB').checked = settings.save_indexedDB;
     document.querySelector('#save_cacheAPI').checked = settings.save_cacheAPI;
+    document.querySelector('#cache_size_limit').value = settings.cache_size_limit_mb || 50;
+
+    // Show cache warning/limit if Cache API is enabled
+    if (settings.save_cacheAPI) {
+        document.querySelector('#cache_warning').style.display = 'block';
+        document.querySelector('#cache_limit_section').style.display = 'block';
+    }
 
     update_warning();
     update_storage_stats();
@@ -455,11 +464,48 @@ document.querySelector('#auto_save').addEventListener('change', async (event) =>
     chrome.runtime.sendMessage({ action: 'settingsChanged' });
 });
 
-// Storage type toggles
-['save_localStorage', 'save_indexedDB', 'save_cacheAPI'].forEach(id => {
+// Storage type toggles (localStorage and IndexedDB)
+['save_localStorage', 'save_indexedDB'].forEach(id => {
     document.querySelector('#' + id).addEventListener('change', async (event) => {
         await chrome.storage.local.set({ [event.target.id]: event.target.checked });
     });
+});
+
+// Cache API toggle with warning modal
+document.querySelector('#save_cacheAPI').addEventListener('change', async (event) => {
+    const isEnabled = event.target.checked;
+
+    if (isEnabled) {
+        // Show warning modal instead of browser confirm
+        document.querySelector('#cache_warning_modal').classList.add('active');
+        // Don't enable yet - wait for modal confirmation
+        event.target.checked = false;
+    } else {
+        await chrome.storage.local.set({ 'save_cacheAPI': false });
+        document.querySelector('#cache_warning').style.display = 'none';
+        document.querySelector('#cache_limit_section').style.display = 'none';
+    }
+});
+
+// Cache warning modal handlers
+document.querySelector('#cache_warning_confirm').addEventListener('click', async () => {
+    document.querySelector('#cache_warning_modal').classList.remove('active');
+    document.querySelector('#save_cacheAPI').checked = true;
+    await chrome.storage.local.set({ 'save_cacheAPI': true });
+    document.querySelector('#cache_warning').style.display = 'block';
+    document.querySelector('#cache_limit_section').style.display = 'block';
+});
+
+document.querySelector('#cache_warning_cancel').addEventListener('click', () => {
+    document.querySelector('#cache_warning_modal').classList.remove('active');
+    document.querySelector('#save_cacheAPI').checked = false;
+});
+
+// Cache size limit change handler
+document.querySelector('#cache_size_limit').addEventListener('change', async (event) => {
+    const limit = Math.max(1, Math.min(500, parseInt(event.target.value) || 50));
+    event.target.value = limit;
+    await chrome.storage.local.set({ 'cache_size_limit_mb': limit });
 });
 
 // Save button
@@ -513,73 +559,10 @@ chrome.downloads.onChanged.addListener((download) => {
     }
 });
 
-// Restore from file
+// Restore from file - open dedicated restore page to avoid popup auto-close
 document.querySelector('#restore').addEventListener('click', () => {
-    file_input.click();
-});
-
-file_input.addEventListener('change', async () => {
-    const file = file_input.files[0];
-
-    if (!file || file.size === 0) {
-        return;
-    }
-
-    const text = await new Blob([file], { 'type': 'application/json' }).text();
-    const data = JSON.parse(text);
-
-    // Handle both v1 (cookies only) and v2 (full data) formats
-    let cookies = [];
-    let webStorage = {};
-
-    if (data.version === 2) {
-        cookies = data.cookies || [];
-        webStorage = data.webStorage || {};
-    } else if (Array.isArray(data)) {
-        // v1 format: just an array of cookies
-        cookies = data;
-    }
-
-    // Convert cookies if needed
-    for (let cookie of cookies) {
-        if (cookie['storeId'] == (isFirefox ? '1' : 'firefox-private')) {
-            cookie['storeId'] = cookie_store;
-        }
-
-        if (isFirefox) {
-            if (cookie['sameSite'] == 'unspecified') {
-                cookie['sameSite'] = 'no_restriction';
-            }
-            if (cookie['firstPartyDomain'] === undefined) {
-                cookie['firstPartyDomain'] = '';
-            }
-            if (cookie['partitionKey'] === undefined) {
-                cookie['partitionKey'] = null;
-            }
-        } else {
-            if (!cookie['secure'] && cookie['sameSite'] == 'no_restriction') {
-                cookie['sameSite'] = 'unspecified';
-            }
-            if (cookie['firstPartyDomain'] !== undefined) {
-                delete cookie['firstPartyDomain'];
-            }
-            if (cookie['partitionKey'] !== undefined) {
-                delete cookie['partitionKey'];
-            }
-        }
-    }
-
-    await chrome.storage.local.set({ 'cookies': cookies, 'webStorage': webStorage });
-    file_input.value = '';
-
-    update_storage_stats();
-
-    if (await is_private_window_open()) {
-        await clear_private_cookies();
-        await clearWebStorageFromTabs();
-        restore_cookies();
-        await restoreWebStorageToTabs(false);
-    }
+    // Open restore page in a new tab (popup closes when file picker opens)
+    chrome.tabs.create({ url: chrome.runtime.getURL('restore.html') });
 });
 
 // Listen for window changes
@@ -607,5 +590,68 @@ chrome.storage.onChanged.addListener((changes) => {
     }
     if (changes['last_saved']) {
         update_last_saved();
+    }
+});
+
+// Toast notification helper
+function showToast(message, isError = false) {
+    const toast = document.querySelector('#toast');
+    toast.textContent = message;
+    toast.style.background = isError ? 'var(--accent)' : 'var(--success)';
+    toast.style.color = 'white';
+    toast.style.display = 'block';
+    setTimeout(() => {
+        toast.style.display = 'none';
+    }, 3000);
+}
+
+// Nuclear clear button - show modal
+document.querySelector('#nuclear_clear').addEventListener('click', () => {
+    document.querySelector('#nuclear_modal').classList.add('active');
+});
+
+// Nuclear modal cancel
+document.querySelector('#nuclear_cancel').addEventListener('click', () => {
+    document.querySelector('#nuclear_modal').classList.remove('active');
+});
+
+// Nuclear modal confirm
+document.querySelector('#nuclear_confirm').addEventListener('click', async () => {
+    document.querySelector('#nuclear_modal').classList.remove('active');
+
+    try {
+        // Clear everything from chrome.storage.local
+        await chrome.storage.local.clear();
+
+        // Reset to default settings
+        await chrome.storage.local.set(defaultSettings);
+
+        // Clear private window data if open
+        if (await is_private_window_open()) {
+            await clear_private_cookies();
+            await clearWebStorageFromTabs();
+        }
+
+        // Update UI
+        update_storage_stats();
+        update_button_states();
+        update_last_saved();
+
+        // Reset checkboxes to defaults
+        document.querySelector('#extension_enabled').checked = defaultSettings.extension_enabled;
+        document.querySelector('#auto_save').checked = defaultSettings.auto_save;
+        document.querySelector('#save_localStorage').checked = defaultSettings.save_localStorage;
+        document.querySelector('#save_indexedDB').checked = defaultSettings.save_indexedDB;
+        document.querySelector('#save_cacheAPI').checked = defaultSettings.save_cacheAPI;
+        document.querySelector('#cache_size_limit').value = defaultSettings.cache_size_limit_mb;
+
+        // Hide cache warning/limit section
+        document.querySelector('#cache_warning').style.display = 'none';
+        document.querySelector('#cache_limit_section').style.display = 'none';
+
+        showToast('✅ All extension data cleared!');
+    } catch (e) {
+        console.error('Failed to clear extension data:', e);
+        showToast('❌ Failed to clear some data', true);
     }
 });

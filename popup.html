@@ -388,6 +388,80 @@
             color: var(--accent);
             text-decoration: none;
         }
+
+        /* Cache API Warning */
+        .cache-warning {
+            background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
+            color: white;
+            padding: 12px 15px;
+            border-radius: 8px;
+            margin-top: 10px;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+
+        .cache-limit-section {
+            margin-top: 10px;
+            padding: 12px;
+            background: var(--bg-primary);
+            border-radius: 8px;
+        }
+
+        .cache-limit-section label {
+            font-size: 12px;
+            display: block;
+            margin-bottom: 6px;
+        }
+
+        .cache-limit-section input[type="number"] {
+            width: 80px;
+            padding: 6px 10px;
+            border: 1px solid var(--bg-card);
+            border-radius: 6px;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            font-size: 13px;
+        }
+
+        .cache-limit-section .helper-text {
+            font-size: 10px;
+            color: var(--text-secondary);
+            margin-left: 8px;
+        }
+
+        /* Danger Zone */
+        .danger-zone {
+            margin-top: 15px;
+            padding: 15px;
+            border: 2px solid var(--accent);
+            border-radius: var(--border-radius);
+            background: rgba(233, 69, 96, 0.1);
+        }
+
+        .danger-zone .section-title {
+            color: var(--accent);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .danger-zone .helper-text {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-top: 10px;
+            line-height: 1.4;
+        }
+
+        .btn-nuclear {
+            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+            color: white;
+            width: 100%;
+        }
+
+        .btn-nuclear:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(220, 53, 69, 0.4);
+        }
     </style>
 </head>
 
@@ -452,9 +526,18 @@
                 <input type="checkbox" id="save_cacheAPI">
                 <span class="option-label">
                     Cache API
-                    <small>Offline assets</small>
+                    <small>Offline assets ⚠️</small>
                 </span>
             </label>
+        </div>
+        <div class="cache-warning" id="cache_warning" style="display: none;">
+            ⚠️ <strong>Warning:</strong> Websites can cache gigabytes of data. This may cause slow performance and high
+            disk usage.
+        </div>
+        <div class="cache-limit-section" id="cache_limit_section" style="display: none;">
+            <label for="cache_size_limit">Max cache size per origin:</label>
+            <input type="number" id="cache_size_limit" min="1" max="500" value="50">
+            <span class="helper-text">MB (1-500)</span>
         </div>
     </div>
 
@@ -496,7 +579,15 @@
                 <span>🗑️</span> Delete
             </button>
         </div>
-        <input type="file" accept=".json" id="file_input" style="display: none;">
+    </div>
+
+    <div class="danger-zone">
+        <div class="section-title">⚠️ Danger Zone</div>
+        <button class="btn btn-nuclear" id="nuclear_clear">
+            <span>💥</span> Clear ALL Extension Data
+        </button>
+        <p class="helper-text">Removes all saved cookies, localStorage, IndexedDB, and Cache API data. Resets all
+            settings to defaults. This cannot be undone.</p>
     </div>
 
     <div class="footer">
@@ -524,6 +615,58 @@
                 </button>
             </div>
         </div>
+    </div>
+
+    <!-- Cache API Warning Modal -->
+    <div class="modal-overlay" id="cache_warning_modal">
+        <div class="modal">
+            <h3>⚠️ Cache API Warning</h3>
+            <p>Websites can cache <strong>GIGABYTES</strong> of data (video segments, images, etc.).</p>
+            <p>Enabling this option may:</p>
+            <ul style="font-size: 13px; color: var(--text-secondary); margin: 10px 0 15px 20px; line-height: 1.6;">
+                <li>Cause slow save/restore operations</li>
+                <li>Use significant disk space</li>
+                <li>Cause high CPU usage during saves</li>
+            </ul>
+            <p>You can set a size limit below to mitigate this.</p>
+            <div class="modal-buttons">
+                <button class="btn btn-primary" id="cache_warning_confirm">
+                    <span>✓</span> I understand, enable it
+                </button>
+                <button class="btn btn-danger" id="cache_warning_cancel">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Nuclear Clear Confirmation Modal -->
+    <div class="modal-overlay" id="nuclear_modal">
+        <div class="modal">
+            <h3>💥 Clear ALL Data</h3>
+            <p>This will <strong>permanently delete</strong>:</p>
+            <ul style="font-size: 13px; color: var(--text-secondary); margin: 10px 0 15px 20px; line-height: 1.6;">
+                <li>All saved cookies</li>
+                <li>All saved localStorage data</li>
+                <li>All saved IndexedDB data</li>
+                <li>All saved Cache API data</li>
+                <li>All extension settings (reset to defaults)</li>
+            </ul>
+            <p style="color: var(--accent); font-weight: bold;">This action CANNOT be undone!</p>
+            <div class="modal-buttons">
+                <button class="btn btn-nuclear" id="nuclear_confirm">
+                    <span>💥</span> Yes, clear everything
+                </button>
+                <button class="btn btn-secondary" id="nuclear_cancel">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Success/Error Toast -->
+    <div id="toast"
+        style="display: none; position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); padding: 12px 20px; border-radius: 8px; font-size: 13px; z-index: 200;">
     </div>
 
     <script src="popup.js"></script>
