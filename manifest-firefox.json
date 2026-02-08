@@ -2,13 +2,16 @@
 	"manifest_version": 3,
 	"name": "Save private window cookies",
 	"description": "Save cookies, localStorage, IndexedDB, and other data in private windows and restore them when a new private window is opened.",
-	"version": "2.0.0",
+	"version": "2.0.2",
 	"homepage_url": "https://github.com/JadenJSJ/save-private-window-cookies-web-browser-extension",
 	"author": "JadenJSJ",
 	"browser_specific_settings": {
 		"gecko": {
 			"id": "save-private-window-cookies@JadenJSJ",
-			"strict_min_version": "109.0"
+			"strict_min_version": "109.0",
+			"data_collection_permissions": {
+				"required": ["none"]
+			}
 		}
 	},
 	"icons": {
@@ -19,6 +22,7 @@
 		"96": "icons/icon.svg",
 		"128": "icons/icon.svg"
 	},
+	"incognito": "spanning",
 	"action": {
 		"default_popup": "popup.html",
 		"default_icon": {

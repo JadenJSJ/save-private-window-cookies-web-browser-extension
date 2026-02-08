@@ -247,13 +247,28 @@ chrome.runtime.onInstalled.addListener(async () => {
 	await chrome.storage.local.set(options);
 });
 
+// Listen for the extension starting up
+// The extension may be initialized after the windows.onCreated listeners are fired, which means that the events would be lost.
+// This is a known race-condition on Firefox, which initializes the extensions and the main window in parallel.
+// To fix this we register an onStartup listener here which gets called when the extension is initialized, which then calls the window listener manually.
+chrome.runtime.onStartup.addListener(async () => {
+  const windows = await browser.windows.getAll();
+  // Process any existing windows that were created before listener was ready
+  for (const window of windows) {
+    // Handle the window as if onCreated fired
+    await handleNewWindow(window);
+  }
+});
+
 chrome.storage.onChanged.addListener((changes) => {
 	if (changes.auto_save || changes.extension_enabled) {
 		save_cookies_listener();
 	}
 });
 
-chrome.windows.onCreated.addListener(async (window) => {
+chrome.windows.onCreated.addListener(handleNewWindow);
+
+async function handleNewWindow(window) {
 	invalidatePrivateWindowCache(); // Invalidate cache on window changes
 
 	const settings = await chrome.storage.local.get(defaultSettings);
@@ -270,7 +285,7 @@ chrome.windows.onCreated.addListener(async (window) => {
 		save_cookies_listener();
 		was_private_window_open = true;
 	}
-});
+}
 
 chrome.windows.onRemoved.addListener(async () => {
 	invalidatePrivateWindowCache(); // Invalidate cache on window changes
