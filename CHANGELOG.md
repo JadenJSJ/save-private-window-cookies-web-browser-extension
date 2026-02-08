@@ -1,5 +1,8 @@
 # Changelog
 
+## [2.0.2] - 2026-02-08
+- Fix: Restore data if a private window is opened without another window already running
+
 ## [2.0.0] - 2026-01-12
 - **Major Update**: Extended storage support beyond cookies
 - New: localStorage save/restore support
@@ -31,7 +34,6 @@
 ## [1.0.0] - 2021-09-07
 - First release
 
-[2.0.0]: https://github.com/Adam777Z/save-private-window-cookies-web-browser-extension/releases/tag/2.0.0
 [1.3.0]: https://github.com/Adam777Z/save-private-window-cookies-web-browser-extension/releases/tag/1.3.0
 [1.2.0]: https://github.com/Adam777Z/save-private-window-cookies-web-browser-extension/releases/tag/1.2.0
 [1.1.0]: https://github.com/Adam777Z/save-private-window-cookies-web-browser-extension/releases/tag/1.1.0
